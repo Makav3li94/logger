@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Interfaces\ParseLogsData;
 use App\Models\Log;
 use Illuminate\Console\Command;
 use Illuminate\Support\LazyCollection;
@@ -30,39 +31,22 @@ class ManageLogs extends Command
     public function handle()
     {
         LazyCollection::make(function () {
+            //Open File as single lines
             $handle = fopen(public_path('logs/logs.txt'), 'r');
 
             while (($line = fgets($handle)) !== false) {
                 yield $line;
             }
-        })->chunk(5)->each(function ($lines) {
+        })->chunk(env('CHUNK_SIZE'))->each(function ($lines) {
+            //Parse and modify data to right format
             $data = [];
             foreach ($lines as $line) {
                 if (isset($line[1])) {
-                    $service = explode('-', $line);
-                    $info = explode(' ', $service[2]);
-
-                    $logDate = trim($info[1], '[]');
-                    $logDate = preg_replace("/:/", " ", $logDate, 1);
-                    $logDate = str_replace("/", "-", $logDate);
-                    $logDate = date('Y-m-d H:i:s', strtotime($logDate));
-                    $serviceName = $service[0];
-                    $requestType = trim($info[2], '"');
-                    $requestRoute = trim($info[3], '/');
-                    $requestHeader = trim($info[4], '"');
-                    $responseType = str_replace("\n", "", $info[5]);
-
-                    $data[] = [
-                        'log_date' => $logDate,
-                        'service_name' => $serviceName,
-                        'request_type' => $requestType,
-                        'request_route' => $requestRoute,
-                        'request_header' => $requestHeader,
-                        'response_type' => $responseType,
-                    ];
+                    $data = (new ParseLogsData)->parseLogs($line, $data);
                 }
             }
 
+            //Save to database
             $log = Log::upsert($data, ['log_date'], ['service_name'], ['response_type']);
             if ($log) {
                 $this->info("{$log} Logs Added !");
@@ -75,3 +59,5 @@ class ManageLogs extends Command
 
     }
 }
+
+
